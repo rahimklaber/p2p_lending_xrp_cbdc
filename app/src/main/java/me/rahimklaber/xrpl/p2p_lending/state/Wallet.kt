@@ -8,7 +8,9 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import me.rahimklaber.xrpl.p2p_lending.model.AssetModel
 import me.rahimklaber.xrpl.p2p_lending.model.BalanceModel
+import nl.tudelft.ipv8.util.toHex
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.xrpl.xrpl4j.client.JsonRpcClientErrorException
 import org.xrpl.xrpl4j.client.XrplClient
 import org.xrpl.xrpl4j.client.faucet.FaucetClient
 import org.xrpl.xrpl4j.client.faucet.FundAccountRequest
@@ -36,47 +38,51 @@ class Wallet {
         val faucetClient = FaucetClient
             .construct("https://faucet.altnet.rippletest.net".toHttpUrl())
         faucetClient.fundAccount(FundAccountRequest.of(wallet.classicAddress()))
+        Thread.sleep(6000)
 
         val sequence = runBlocking { sequence() }
 
         val trustSet: ImmutableTrustSet = TrustSet.builder()
             .account(wallet.classicAddress())
-            .fee(XrpCurrencyAmount.ofDrops(10000))
+            .fee(XrpCurrencyAmount.ofDrops(10000000))
             .sequence(sequence)
             .limitAmount(
                 IssuedCurrencyAmount.builder()
                     .currency("CBC")
-                    .issuer(Address.of("rH87pfhJztv1EAKGTQzpkskvVoBzghRyBZ"))
-                    .value("100000000000000000")
+                    .issuer(Address.of("ra2hGw4yUo8Wmvd1wcUGsuCq63fncVosoa"))
+                    .value("1000000000")
                     .build()
             )
             .signingPublicKey(wallet.publicKey())
             .build()
 
-        val trustSetTx = client.signTransaction(wallet,trustSet)
-        client.submit(trustSetTx)
+        val resultTrust = client.submit(wallet,trustSet)
+        Thread.sleep(6000)
+        Log.d("P2P_DEBUG","${resultTrust}")
+        Log.d("P2P_DEBUG","${resultTrust.transactionResult().hash()}")
 
-        val offer = OfferCreate
-            .builder()
-            .account(wallet.classicAddress())
-            .sequence(sequence.plus(UnsignedInteger.ONE))
-            .takerPays(
-                IssuedCurrencyAmount.builder()
-                    .currency("CBC")
-                    .issuer(Address.of("rH87pfhJztv1EAKGTQzpkskvVoBzghRyBZ"))
-                    .value("500")
-                    .build()
-            )
-            .takerGets(
-                XrpCurrencyAmount.builder()
-                .value(UnsignedLong.valueOf("500"))
-                .build())
-            .fee(XrpCurrencyAmount.ofDrops(10000))
-            .signingPublicKey(wallet.publicKey())
-            .build()
+          val offer = OfferCreate
+              .builder()
+              .account(wallet.classicAddress())
+              .sequence(sequence.plus(UnsignedInteger.ONE))
+              .takerPays(
+                  IssuedCurrencyAmount.builder()
+                      .currency("CBC")
+                      .issuer(Address.of("ra2hGw4yUo8Wmvd1wcUGsuCq63fncVosoa"))
+                      .value("500")
+                      .build()
+              )
+              .takerGets(
+                  XrpCurrencyAmount.builder()
+                      .value(UnsignedLong.valueOf("500"))
+                      .build())
+              .fee(XrpCurrencyAmount.ofDrops(10000000))
+              .signingPublicKey(wallet.publicKey())
+              .build()
 
-        val offerTx = client.signTransaction(wallet,offer)
-        client.submit(offerTx)
+          val offerTx = client.signTransaction(wallet,offer)
+          val offerres = client.submit(offerTx)
+          Log.d("P2P_DEBUG","offer : $offerres")
     }
 
     private suspend fun sequence() = withContext(Dispatchers.IO){
@@ -88,22 +94,26 @@ class Wallet {
         ).accountData().sequence()
     }
 
-    suspend fun sendTo(amount : String, to : String) = withContext(Dispatchers.IO){
+    suspend fun sendTo(amount : String, to : String, txHash: String) = withContext(Dispatchers.IO){
         val payment: Payment = Payment.builder()
             .account(wallet.classicAddress())
+            .fee(XrpCurrencyAmount.ofDrops(10000000))
+            .sequence(sequence())
+            .destination(Address.of(to))
             .amount(IssuedCurrencyAmount.builder()
                 .currency("CBC")
-                .issuer(Address.of("rH87pfhJztv1EAKGTQzpkskvVoBzghRyBZ"))
-                .value(amount.toDouble().toInt().toString())
+                .issuer(Address.of("ra2hGw4yUo8Wmvd1wcUGsuCq63fncVosoa"))
+                .value(amount)
                 .build())
-            .destination(Address.of(to))
-            .sequence(sequence())
-            .fee(XrpCurrencyAmount.ofDrops(10000))
             .signingPublicKey(wallet.publicKey())
+            .addMemos(MemoWrapper.builder().memo(Memo.builder()
+                .memoType("trustchain_loan".toByteArray().toHex())
+                .memoData(txHash)
+                .build()).build())
             .build()
-        val offerTx = client.signTransaction(wallet,payment)
-        val res = client.submit(offerTx)
-        Log.d("rahimtest","tx hash = ${res.transactionResult().hash()}")
+        val res = client.submit(wallet,payment)
+        Log.d("P2P_DEBUG","tx hash = ${res.transactionResult().hash()}")
+        Log.d("P2P_DEBUG","tx hash = ${res}")
 
     }
 

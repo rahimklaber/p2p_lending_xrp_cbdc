@@ -86,7 +86,7 @@ dependencies {
     debugImplementation "androidx.compose.ui:ui-tooling:$compose_ui_version"
     debugImplementation "androidx.compose.ui:ui-test-manifest:$compose_ui_version"
 
-    implementation(platform("org.xrpl:xrpl4j-bom:2.2.0"))
+    implementation(platform("org.xrpl:xrpl4j-bom:2.4.0"))
     implementation("org.xrpl:xrpl4j-client")
     implementation("org.xrpl:xrpl4j-address-codec")
     implementation("org.xrpl:xrpl4j-keypairs")

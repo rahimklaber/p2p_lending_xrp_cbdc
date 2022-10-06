@@ -11,6 +11,11 @@ import nl.tudelft.ipv8.messaging.*
 import nl.tudelft.ipv8.messaging.payload.IntroductionResponsePayload
 import java.util.*
 
+
+object LoanBlocks{
+    const val LOAN = "LOAN"
+}
+
 class AdvertiseLoanMessage(val id : String,val advertiserXrpAddress: String,val amount : Double, val termDays : Int, val totalInterest : Double) : Serializable {
     override fun serialize(): ByteArray {
         return "$id#$advertiserXrpAddress#$amount#$termDays#$totalInterest".toByteArray()
@@ -45,17 +50,24 @@ class LoanCommunity : Community() {
 
     val discoveredAddressesContacted: MutableMap<IPv4Address, Date> = mutableMapOf()
     val lastTrackerResponses = mutableMapOf<IPv4Address, Date>()
-
+    val crawling = mutableSetOf<String>()
     override fun walkTo(address: IPv4Address) {
         super.walkTo(address)
 
         discoveredAddressesContacted[address] = Date()
     }
+    var onNewPeerCb : ((Peer) -> Unit)? = null
 
+    fun onNewPeer(cb : (peer: Peer)->Unit){
+        onNewPeerCb = cb
+    }
 
     override fun onIntroductionResponse(peer: Peer, payload: IntroductionResponsePayload) {
         super.onIntroductionResponse(peer, payload)
-
+        if (peer.mid !in crawling){
+            crawling.add(peer.mid)
+            onNewPeerCb?.invoke(peer)
+        }
         if (peer.address in DEFAULT_ADDRESSES) {
             lastTrackerResponses[peer.address] = Date()
         }
@@ -72,6 +84,10 @@ class LoanCommunity : Community() {
     fun setOnAcceptLoanReceived(f : (Peer,AcceptLoanMessage, ByteArray) -> Unit){
         messageHandlers[AcceptLoanMessage.MESSAGE_ID] = {packet ->
             val (peer, payload) = packet.getAuthPayload(AcceptLoanMessage.Deserializer)
+            if (peer.mid !in crawling){
+                crawling.add(peer.mid)
+                onNewPeerCb?.invoke(peer)
+            }
             f(peer,payload,packet.data/*raw payload*/)
         }
     }

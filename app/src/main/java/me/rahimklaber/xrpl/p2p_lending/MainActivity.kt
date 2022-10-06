@@ -38,6 +38,7 @@ import kotlinx.coroutines.withContext
 import me.rahimklaber.xrpl.p2p_lending.model.AssetModel
 import me.rahimklaber.xrpl.p2p_lending.model.BalanceModel
 import me.rahimklaber.xrpl.p2p_lending.model.TakenLoanModel
+import me.rahimklaber.xrpl.p2p_lending.screen.DebugScreen
 import me.rahimklaber.xrpl.p2p_lending.screen.MainScreen
 import me.rahimklaber.xrpl.p2p_lending.ui.theme.AppTheme
 import nl.tudelft.ipv8.IPv8Configuration
@@ -113,39 +114,7 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                             composable("peers") {
-                                val peers = remember { mutableStateListOf<Peer>() }
-                                var lookig_for_peers by remember { mutableStateOf(false) }
-                                LaunchedEffect(key1 = null) {
-                                    while (true) {
-
-                                        delay(1000)
-                                        peers.clear()
-                                        viewModel.ipv8.overlays.forEach { (_, overlay) ->
-                                            lookig_for_peers = true
-                                            peers.addAll(overlay.getPeers())
-                                        }
-                                    }
-                                }
-                                LazyColumn {
-                                    item() {
-                                        Card() {
-                                            Column {
-                                                Text("my mid: ${viewModel.ipv8.myPeer.mid}")
-                                                Text("Looking checking for our peers : $lookig_for_peers")
-                                                Text("Amount of peers : ${peers.size}")
-                                            }
-                                        }
-                                    }
-                                    for (it in peers) {
-                                        item {
-                                            Card(Modifier.padding(vertical = 5.dp)) {
-                                                Column {
-                                                    Text(it.toString())
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                                DebugScreen(viewModel = viewModel)
                             }
                             composable("create_loan") {
                                 Column(Modifier.fillMaxWidth(),horizontalAlignment = Alignment.CenterHorizontally) {
@@ -201,15 +170,28 @@ class MainActivity : ComponentActivity() {
                             }
                             composable("available_loans"){
                                 LazyColumn{
-                                    items(viewModel.loanAdvertisements.map(Pair<Peer,AdvertiseLoanMessage>::second)){
-                                       Column {
+                                    items(viewModel.loanAdvertisements){(peer, it) ->
+                                        var reputation  by remember {
+                                            mutableStateOf<Int?>(null)
+                                        }
+                                        LaunchedEffect(key1 = null){
+                                            if (reputation != null)
+                                                return@LaunchedEffect
+                                            reputation = withContext(Dispatchers.IO){
+                                                viewModel.getReputationOfPeer(peer)
+                                            }
+                                        }
+                                        Column {
                                            Row{
                                                Column {
                                                    Text("amount : ${it.amount}")
                                                    Text("totalInterest : ${it.totalInterest}")
                                                }
                                                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopEnd){
-                                                   Text("term : ${it.termDays}")
+                                                  Column {
+                                                      Text("term : ${it.termDays}")
+                                                      Text("reputation: ${reputation ?: "calculating..."}")
+                                                  }
                                                }
                                            }
                                            Button(onClick = {
