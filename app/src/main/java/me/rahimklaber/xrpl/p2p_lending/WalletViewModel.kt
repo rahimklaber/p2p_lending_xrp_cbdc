@@ -11,7 +11,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import me.rahimklaber.xrpl.p2p_lending.model.AssetModel
 import me.rahimklaber.xrpl.p2p_lending.model.BalanceModel
+import me.rahimklaber.xrpl.p2p_lending.model.GiverLoanModel
 import me.rahimklaber.xrpl.p2p_lending.model.TakenLoanModel
 import me.rahimklaber.xrpl.p2p_lending.state.Wallet
 import nl.tudelft.ipv8.Peer
@@ -21,7 +23,6 @@ import nl.tudelft.ipv8.attestation.trustchain.TrustChainBlock
 import nl.tudelft.ipv8.attestation.trustchain.TrustChainCommunity
 import nl.tudelft.ipv8.util.hexToBytes
 import nl.tudelft.ipv8.util.toHex
-import okio.ByteString.Companion.decodeHex
 import org.xrpl.xrpl4j.model.transactions.Address
 
 typealias LoanBlock = TrustChainBlock
@@ -31,11 +32,17 @@ val LoanBlock.loanGiverXrpAddress
 val LoanBlock.loanTakerXrpAddress
     get() = transaction["loan_taker_xrp_address"]!! as String
 
+object XrplMemos {
+    const val trustChainLoan = "trustchain_loan"
+    const val trustChainLoanRepayment = "trustchain_loan_repayment"
+}
+
 class WalletViewModel : ViewModel() {
     private lateinit var wallet: Wallet
     var walletInitDone: Boolean by mutableStateOf(false)
     var balances by mutableStateOf(listOf<BalanceModel>())
     var takenLoans = mutableStateListOf<TakenLoanModel>()
+    var givenLoans = mutableStateListOf<GiverLoanModel>()
     var loanAdvertisements = mutableStateListOf<Pair<Peer, AdvertiseLoanMessage>>()
     var myLoanAdvertisements = mutableStateListOf<AdvertiseLoanMessage>()
     var ipv8 = IPv8Android.getInstance()
@@ -44,6 +51,15 @@ class WalletViewModel : ViewModel() {
 
     val trustChainCommunity: TrustChainCommunity
         get() = ipv8.getOverlay()!!
+
+    val trustedPeersMids = mutableStateListOf<String>()
+    var isNicknameSet by mutableStateOf(false)
+    val midToNickName = mutableMapOf<String,String>()
+
+    //todo : Its probably not a good idea to hold a reference to a peer :thinking:
+    val foundPeers = mutableStateListOf<Peer>()
+
+    var nickname = ""
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
@@ -60,7 +76,7 @@ class WalletViewModel : ViewModel() {
             }
         }
 
-        trustChainCommunity.addListener("loan", object : BlockListener {
+        trustChainCommunity.addListener( LoanBlockType.LOAN, object : BlockListener {
             override fun onBlockReceived(block: TrustChainBlock) {
                 if (block.isProposal && block.publicKey.contentEquals(
                         ipv8.myPeer.key.pub().keyToBin()
@@ -73,7 +89,19 @@ class WalletViewModel : ViewModel() {
 
         loanCommunity.onNewPeer { peer ->
             viewModelScope.launch(Dispatchers.Default) {
-                trustChainCommunity.crawlChain(peer)
+                foundPeers.add(peer)
+                while (true){
+                    trustChainCommunity.crawlChain(peer)
+                    val nicknameBlocks = trustChainCommunity.database.getBlocksWithType(LoanBlockType.NICK_NAME)
+
+                    nicknameBlocks.filter{
+                        it.publicKey.contentEquals(peer.publicKey.keyToBin())
+                    }.take(1).forEach {
+                        midToNickName[peer.mid] = it.transaction["nickname"] as String
+                        return@launch
+                    }
+                    delay(5000)
+                }
             }
         }
 
@@ -87,9 +115,9 @@ class WalletViewModel : ViewModel() {
                 }
                 val proposalBlock = trustChainCommunity
                     .createProposalBlock(
-                        LoanBlocks.LOAN, mapOf(
-                            "loan_giver_xrp_address" to acceptLoan.accepterAddress,
-                            "loan_taker_xrp_address" to wallet.wallet.classicAddress().toString(),
+                        LoanBlockType.LOAN, mapOf(
+                            "loan_giver_xrp_address" to wallet.wallet.classicAddress().toString(),
+                            "loan_taker_xrp_address" to acceptLoan.accepterAddress,
                             "amount" to loan.amount.toString(),
                             "term_days" to loan.termDays.toString(),
                             "total_interest_percent" to loan.totalInterest.toString()
@@ -102,18 +130,31 @@ class WalletViewModel : ViewModel() {
                     acceptLoan.accepterAddress,
                     proposalBlock.calculateHash().toHex()
                 )
+                givenLoans.add(
+                    GiverLoanModel(
+                        to = getNicknameOfMid(peer.mid) ?: "UNKNOWN",
+                        amount = loan.amount.toString(),
+                        asset = AssetModel("CBDC", "CBDC", "??", "")
+                    )
+                )
                 reloadAsync().await()
             }
         }
     }
 
-    fun getReputationOfPeer(peer: Peer) : Int{
+    //Todo : Cache this.
+    //So if only x amount of time has passed, don't recompute. Or checkpoint the result, so you don't
+    //have to recompute everytime.
+    fun getReputationOfPeer(peer: Peer): Int {
         val blocks =
             // for now, assume these blocks have a corresponding agreement block
             trustChainCommunity.database.getMutualBlocks(peer.key.pub().keyToBin(), 500)
-                .filter{it.type==LoanBlocks.LOAN}
+                    // getmutualblocks uses this query : SELECT * FROM blocks WHERE public_key = ? OR link_public_key = ?
+                    // we only want the link_public_key part
+                .filter { it.linkPublicKey.contentEquals(peer.key.pub().keyToBin()) }
+                .filter { it.type == LoanBlockType.LOAN }
                 .filter(TrustChainBlock::isProposal)
-        if(blocks.isEmpty())
+        if (blocks.isEmpty())
             return 0
 
         val takenLoans = mutableSetOf<String>()
@@ -126,29 +167,49 @@ class WalletViewModel : ViewModel() {
                 .transactions()
                 .forEach { tx ->
 
-                    val memo = tx.resultTransaction().transaction().memos().firstOrNull() ?: return@forEach
+                    val memo =
+                        tx.resultTransaction().transaction().memos().firstOrNull() ?: return@forEach
                     //todo add constants somewhere
-                    val decodedMemoType = memo.memo().memoType().orElseGet { "" }.hexToBytes().decodeToString()
+                    val decodedMemoType =
+                        memo.memo().memoType().orElseGet { "" }.hexToBytes().decodeToString()
 
-                    val decodedMemo = memo.memo().memoData().orElseGet{""}
+                    val decodedMemo = memo.memo().memoData().orElseGet { "" }
 
-                    if (decodedMemoType !in setOf("trustchain_loan", "trustchain_loan_repayment"))
+                    if (decodedMemoType !in setOf(
+                            XrplMemos.trustChainLoan,
+                            XrplMemos.trustChainLoanRepayment
+                        )
+                    )
                         return@forEach
 
-                    Log.d("P2P_DEBUG", "getReputationOfPeer: found xrp tx with hash : ${tx.resultTransaction().hash()}, that was a part of a loan ")
-                    when(decodedMemoType){
-                        "trustchain_loan" -> takenLoans.add(decodedMemo)
-                        "trustchain_loan_repayment" -> repaidLoans.add(decodedMemo)
-                        else -> Log.d("P2P_DEBUG", "getReputationOfPeer: found xrp tx with unknown memotype : $decodedMemoType ")
+                    Log.d(
+                        "P2P_DEBUG",
+                        "getReputationOfPeer: found xrp tx with hash : ${
+                            tx.resultTransaction().hash()
+                        }, that was a part of a loan "
+                    )
+                    // if the sender is not the loan taker then this is the loan tx
+                    // if the sender is the loan taker then this is a repayment
+                    when (decodedMemoType) {
+                        XrplMemos.trustChainLoan -> if (tx.resultTransaction().transaction().account().toString() != block.loanTakerXrpAddress) {
+                            takenLoans.add(decodedMemo)
+                        }
+                        XrplMemos.trustChainLoanRepayment -> if (tx.resultTransaction().transaction().account().toString() == block.loanTakerXrpAddress) {
+                            repaidLoans.add(decodedMemo)
+                        }
+                        else -> Log.d(
+                            "P2P_DEBUG",
+                            "getReputationOfPeer: found xrp tx with unknown memotype : $decodedMemoType "
+                        )
 
                     }
 
                 }
 
-            return takenLoans.fold(0){acc,hash ->
-                acc + if (hash in repaidLoans){
+            return takenLoans.fold(0) { acc, hash ->
+                acc + if (hash in repaidLoans) {
                     1
-                }else {
+                } else {
                     -1
                 }
             }
@@ -163,7 +224,7 @@ class WalletViewModel : ViewModel() {
         loanCommunity.acceptLoan(peer, id, wallet.wallet.classicAddress().toString())
         takenLoans.add(
             TakenLoanModel(
-                loan.advertiserXrpAddress.take(5),
+                getNicknameOfMid(peer.mid) ?: "UNKNOWN",
                 loan.amount.toString(),
                 balances.first().asset
             )
@@ -207,6 +268,28 @@ class WalletViewModel : ViewModel() {
         wallet.balance()?.let {
             balances = listOf(it)
         }
+    }
+
+    fun trustUser(peer: Peer){
+        trustedPeersMids.add(peer.mid)
+        trustChainCommunity.createProposalBlock(
+            LoanBlockType.TRUST_USER,
+            mapOf<Nothing,Nothing>(),
+            peer.publicKey.keyToBin()
+        )
+    }
+
+    fun setNickName(name: String){
+        nickname = name
+        trustChainCommunity.createProposalBlock(
+            LoanBlockType.NICK_NAME,
+            mapOf("nickname" to name),
+            ipv8.myPeer.publicKey.keyToBin()
+        )
+    }
+
+    fun getNicknameOfMid(mid : String): String? {
+        return midToNickName[mid]
     }
 
 }

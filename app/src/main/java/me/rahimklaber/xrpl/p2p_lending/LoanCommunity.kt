@@ -1,8 +1,6 @@
 package me.rahimklaber.xrpl.p2p_lending
 
 import android.util.Log
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import nl.tudelft.ipv8.IPv4Address
 import nl.tudelft.ipv8.Community
@@ -12,8 +10,10 @@ import nl.tudelft.ipv8.messaging.payload.IntroductionResponsePayload
 import java.util.*
 
 
-object LoanBlocks{
+object LoanBlockType{
     const val LOAN = "LOAN"
+    const val TRUST_USER ="TRUST_USER"
+    const val NICK_NAME ="NICK_NAME"
 }
 
 class AdvertiseLoanMessage(val id : String,val advertiserXrpAddress: String,val amount : Double, val termDays : Int, val totalInterest : Double) : Serializable {

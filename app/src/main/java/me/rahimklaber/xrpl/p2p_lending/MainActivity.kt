@@ -40,6 +40,7 @@ import me.rahimklaber.xrpl.p2p_lending.model.BalanceModel
 import me.rahimklaber.xrpl.p2p_lending.model.TakenLoanModel
 import me.rahimklaber.xrpl.p2p_lending.screen.DebugScreen
 import me.rahimklaber.xrpl.p2p_lending.screen.MainScreen
+import me.rahimklaber.xrpl.p2p_lending.screen.UsersScreen
 import me.rahimklaber.xrpl.p2p_lending.ui.theme.AppTheme
 import nl.tudelft.ipv8.IPv8Configuration
 import nl.tudelft.ipv8.Overlay
@@ -96,7 +97,11 @@ class MainActivity : ComponentActivity() {
                             }}) {
                                 Text("loans")
                             }
-
+                            Button(onClick = {   viewModel.viewModelScope.launch {
+                                navController.navigate("users")
+                            }}) {
+                                Text("users")
+                            }
                         }
                     }) {
                     Surface(
@@ -110,7 +115,6 @@ class MainActivity : ComponentActivity() {
                                 MainScreen(
                                     navController = navController,
                                     viewModel = viewModel,
-                                    loans = loanModels
                                 )
                             }
                             composable("peers") {
@@ -186,6 +190,7 @@ class MainActivity : ComponentActivity() {
                                                Column {
                                                    Text("amount : ${it.amount}")
                                                    Text("totalInterest : ${it.totalInterest}")
+                                                   Text("loan giver : ${viewModel.getNicknameOfMid(peer.mid) ?: "UNKNOWN"}")
                                                }
                                                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopEnd){
                                                   Column {
@@ -203,6 +208,9 @@ class MainActivity : ComponentActivity() {
                                         Divider(color = Color(0xFFB3B095), thickness = 1.dp)
                                     }
                                 }
+                            }
+                            composable("users"){
+                                UsersScreen(viewModel)
                             }
                         }
                     }
@@ -273,7 +281,7 @@ class MainActivity : ComponentActivity() {
     private fun getPrivateKey(): PrivateKey {
         // Load a key from the shared preferences
         val prefs = PreferenceManager.getDefaultSharedPreferences(this)
-        val privateKey = prefs.getString(PREF_PRIVATE_KEY, null)
+        val privateKey = null/*prefs.getString(PREF_PRIVATE_KEY, null)*/
         return if (privateKey == null) {
             // Generate a new key on the first launch
             val newKey = AndroidCryptoProvider.generateKey()
@@ -282,7 +290,7 @@ class MainActivity : ComponentActivity() {
                 .apply()
             newKey
         } else {
-            AndroidCryptoProvider.keyFromPrivateBin(privateKey.hexToBytes())
+            AndroidCryptoProvider.keyFromPrivateBin(privateKey!!.hexToBytes())
         }
     }
 
