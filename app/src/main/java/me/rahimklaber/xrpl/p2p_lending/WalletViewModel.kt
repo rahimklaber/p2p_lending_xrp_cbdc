@@ -82,7 +82,9 @@ class WalletViewModel : ViewModel() {
                         ipv8.myPeer.key.pub().keyToBin()
                     )
                 ) {
-                    trustChainCommunity.createAgreementBlock(block, mapOf<String, Int>())
+                    kotlin.runCatching {
+                        trustChainCommunity.createAgreementBlock(block, mapOf<String, Int>())
+                    }
                 }
             }
         })
