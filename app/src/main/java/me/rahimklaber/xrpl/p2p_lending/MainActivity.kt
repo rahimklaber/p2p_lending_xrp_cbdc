@@ -40,6 +40,7 @@ import me.rahimklaber.xrpl.p2p_lending.model.BalanceModel
 import me.rahimklaber.xrpl.p2p_lending.model.TakenLoanModel
 import me.rahimklaber.xrpl.p2p_lending.screen.DebugScreen
 import me.rahimklaber.xrpl.p2p_lending.screen.MainScreen
+import me.rahimklaber.xrpl.p2p_lending.screen.TrustInfoScreen
 import me.rahimklaber.xrpl.p2p_lending.screen.UsersScreen
 import me.rahimklaber.xrpl.p2p_lending.ui.theme.AppTheme
 import nl.tudelft.ipv8.IPv8Configuration
@@ -101,6 +102,11 @@ class MainActivity : ComponentActivity() {
                                 navController.navigate("users")
                             }}) {
                                 Text("users")
+                            }
+                            Button(onClick = {   viewModel.viewModelScope.launch {
+                                navController.navigate("trust_info")
+                            }}) {
+                                Text("trust_info")
                             }
                         }
                     }) {
@@ -211,6 +217,9 @@ class MainActivity : ComponentActivity() {
                             }
                             composable("users"){
                                 UsersScreen(viewModel)
+                            }
+                            composable("trust_info"){
+                                TrustInfoScreen(viewModel = viewModel)
                             }
                         }
                     }

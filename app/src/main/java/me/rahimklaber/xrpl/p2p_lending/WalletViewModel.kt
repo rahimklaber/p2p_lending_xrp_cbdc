@@ -45,6 +45,7 @@ class WalletViewModel : ViewModel() {
     var givenLoans = mutableStateListOf<GiverLoanModel>()
     var loanAdvertisements = mutableStateListOf<Pair<Peer, AdvertiseLoanMessage>>()
     var myLoanAdvertisements = mutableStateListOf<AdvertiseLoanMessage>()
+    var trustedBy = mutableStateListOf<String>()
     var ipv8 = IPv8Android.getInstance()
     val loanCommunity: LoanCommunity
         get() = ipv8.getOverlay()!!
@@ -85,6 +86,17 @@ class WalletViewModel : ViewModel() {
                     kotlin.runCatching {
                         trustChainCommunity.createAgreementBlock(block, mapOf<String, Int>())
                     }
+                }
+            }
+        })
+
+        trustChainCommunity.addListener( LoanBlockType.TRUST_USER, object : BlockListener {
+            override fun onBlockReceived(block: TrustChainBlock) {
+                if (block.isProposal && block.linkPublicKey.contentEquals(
+                        ipv8.myPeer.key.pub().keyToBin()
+                    )
+                ) {
+                    trustedBy.add(foundPeers.first { block.publicKey.toHex() == it.publicKey.keyToBin().toHex() }.mid)
                 }
             }
         })

@@ -57,7 +57,13 @@ fun MainScreen(navController: NavController,viewModel : WalletViewModel){
        }
     }else{
         LazyColumn(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally){
+
             if(viewModel.walletInitDone){
+                item{
+                    Card(Modifier.fillMaxWidth()) {
+                        Text("I am user: ${viewModel.nickname}")
+                    }
+                }
                 item {
                     Button(onClick = { navController.navigate("create_loan")}) {
                         Text("Create Loan")
