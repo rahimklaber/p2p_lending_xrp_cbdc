@@ -13,3 +13,9 @@ The app uses [ipv8](https://github.com/Tribler/kotlin-ipv8) so that the app can 
 I'm not sure about this, but you could potentially argue that the digital agreements can be seen as a contract, which could add a second layer of protection.
 
 Currently, a token is used to represent a CBDC. When the app launches, the CBDC token will be acquired from the xrpl dex.
+
+## Running the app
+
+You can run the app by opening the project in Android Studio and running it from there.
+
+I've only run the app on my phones for testing, so I can't be sure that the app will run on other phones. I recommend giving the app all permissions in the settings since I still need to add logic to ask for permissions.
